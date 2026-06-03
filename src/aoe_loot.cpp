@@ -47,6 +47,31 @@ void AOELootPlayer::OnPlayerCreatureLootOpened(Player* player, Creature* mainCre
     if (player->GetGroup() && !sConfigMgr->GetOption<bool>("AOELoot.Group", true))
         return;
 
+    // If this player opened a corpse whose round-robin slot belongs to another
+    // group member, immediately auto-take for the rightful owner. The hook fires
+    // after SMSG_LOOT_RESPONSE is sent, so the opener already sees the items in
+    // their client window — but all item takes are validated server-side. By
+    // consuming the items for the owner first (synchronously, before any
+    // CMSG_AUTOSTORE_LOOT_ITEM can arrive), the opener's subsequent take
+    // attempts will find the slots already marked is_looted and be rejected.
+    if (Group* group = player->GetGroup())
+    {
+        if (mainCreature->GetLootRecipientGroup() == group)
+        {
+            LootMethod const method = group->GetLootMethod();
+            if (method == GROUP_LOOT || method == ROUND_ROBIN || method == NEED_BEFORE_GREED)
+            {
+                ObjectGuid const rrGuid = mainCreature->loot.roundRobinPlayer;
+                if (rrGuid && rrGuid != player->GetGUID())
+                {
+                    if (Player* owner = ObjectAccessor::FindConnectedPlayer(rrGuid))
+                        if (owner->GetMap() == mainCreature->GetMap())
+                            owner->AutoTakeCreatureLoot(mainCreature);
+                }
+            }
+        }
+    }
+
     float range = sConfigMgr->GetOption<float>("AOELoot.Range", 55.0f);
     if (range < 5.0f)   range = 5.0f;
     if (range > 100.0f) range = 100.0f;

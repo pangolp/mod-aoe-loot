@@ -21,6 +21,8 @@
 #include "Chat.h"
 #include "Config.h"
 #include "Creature.h"
+#include "Group.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include <list>
