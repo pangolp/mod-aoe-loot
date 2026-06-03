@@ -98,22 +98,25 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
             if (!player->isAllowedToLoot(c))
                 return true;
 
-            // For loot methods that assign per-corpse ownership (GROUP_LOOT, ROUND_ROBIN,
-            // NEED_BEFORE_GREED), only merge corpses where this player is the tap
-            // recipient. Corpses tapped by other group members are left for them to loot
-            // directly; they must not be consumed by a different player's AOE pass.
+            // GROUP_LOOT, ROUND_ROBIN, and NEED_BEFORE_GREED distribute items through
+            // the round-robin system: roundRobinPlayer (set lazily on the first SendLoot
+            // call) determines which group member receives under-threshold items from a
+            // given corpse. GetLootRecipient() reflects who tapped the creature, not who
+            // the round-robin assigns — if one player consistently attacks first, they
+            // would be the tap recipient for every nearby corpse, and the merge would
+            // give them all items while other group members receive nothing.
             //
-            // NOTE: roundRobinPlayer is set lazily (on first SendLoot call), so it is
-            // empty for unopened corpses and cannot be used to determine ownership here.
-            // GetLootRecipient() reflects the player who held the tap at creature death
-            // and is the correct ownership signal at this stage.
+            // To preserve fair distribution, group-tagged corpses are excluded from the
+            // merge entirely for these loot methods. Each player opens each corpse
+            // individually and the server's round-robin system assigns items correctly.
+            // AOE merge continues to work for FREE_FOR_ALL, MASTER_LOOT, and solo kills.
             if (Group* group = player->GetGroup())
             {
                 if (c->GetLootRecipientGroup() == group)
                 {
                     LootMethod const method = group->GetLootMethod();
                     if (method == ROUND_ROBIN || method == GROUP_LOOT || method == NEED_BEFORE_GREED)
-                        return c->GetLootRecipient() != player;
+                        return true;
                 }
             }
 
@@ -130,15 +133,17 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
     // Determines whether the current player is eligible to take a specific item
     // from a source creature's loot.
     //
-    // Corpse-level ownership (GROUP_LOOT / ROUND_ROBIN / NEED_BEFORE_GREED) is
-    // already enforced by the nearbyCorpses filter above using GetLootRecipient().
-    // This lambda handles only per-item checks that apply after that filter:
-    //   - is_blocked  : active roll in flight — never touch.
+    // By the time this lambda runs, the nearbyCorpses filter has already removed
+    // all group-tagged corpses for GROUP_LOOT / ROUND_ROBIN / NEED_BEFORE_GREED,
+    // so the only corpses that reach here are:
+    //   - Solo kills (no loot recipient group)
+    //   - Group kills in FREE_FOR_ALL or MASTER_LOOT mode
+    //
+    // Per-item checks still needed:
+    //   - is_blocked  : active Need/Greed roll in flight — never touch.
     //   - freeforall  : personal drop, any eligible player may take a copy.
     //   - allowedGUIDs: post-roll assignment to specific players.
-    //   - standard    : for solo kills verify direct ownership;
-    //                   for group kills the filter already guarantees the player
-    //                   is the correct recipient, so membership check is enough.
+    //   - standard    : verify solo tap ownership or group membership.
     auto isEligibleForPlayer = [&](LootItem const& item, Creature* src) -> bool
     {
         // Never touch items with an active Need/Greed roll. The roll system owns
@@ -156,9 +161,8 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
         if (!item.allowedGUIDs.empty())
             return item.allowedGUIDs.count(player->GetGUID()) > 0;
 
-        // Standard items: solo kill must match the tap recipient directly;
-        // group kill corpses that reach here have already been filtered to this
-        // player's tap, so group membership is sufficient.
+        // Standard items: verify tap ownership for solo kills, or group membership
+        // for FREE_FOR_ALL / MASTER_LOOT group kills
         Group* recipientGroup = src->GetLootRecipientGroup();
         if (!recipientGroup)
             return src->GetLootRecipient() == player;
