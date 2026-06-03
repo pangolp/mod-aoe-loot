@@ -64,13 +64,35 @@ void AOELootPlayer::OnPlayerCreatureLootOpened(Player* player, Creature* mainCre
         if (!c->HasDynamicFlag(UNIT_DYNFLAG_LOOTABLE))
             return true;
 
-        // isAllowedToLoot covers all ownership and group-loot-method rules:
-        // it checks roundRobinPlayer (set at creature death), allowedGUIDs
-        // (post-roll assignment), group membership, and loot type. Any
-        // corpse that passes this check has items the player is entitled
-        // to take under the server's own loot rules.
+        // isAllowedToLoot checks group membership and whether the player has
+        // at least one item available (including quest items). It is a
+        // necessary but not sufficient condition for auto-take: it returns
+        // true for a player who has quest items on another player's
+        // round-robin corpse, which would cause AutoTakeCreatureLoot to
+        // take regular grey items that belong to the other player (because
+        // StoreLootItem does not block round-robin items in GROUP_LOOT mode
+        // — that protection is enforced client-side via LOOT_SLOT_TYPE_LOCKED).
         if (!player->isAllowedToLoot(c))
             return true;
+
+        // For group loot methods that distribute via round-robin, only
+        // auto-collect corpses where this player is the designated looter.
+        // roundRobinPlayer is set in Loot::FillLoot at creature death
+        // (Unit::Kill → Group::UpdateLooterGuid → SetLootRecipient →
+        // FillLoot:569) and correctly reflects the group's rotation.
+        if (Group* group = player->GetGroup())
+        {
+            if (c->GetLootRecipientGroup() == group)
+            {
+                LootMethod const method = group->GetLootMethod();
+                if (method == GROUP_LOOT || method == ROUND_ROBIN || method == NEED_BEFORE_GREED)
+                {
+                    ObjectGuid const rrPlayer = c->loot.roundRobinPlayer;
+                    if (rrPlayer && rrPlayer != player->GetGUID())
+                        return true;
+                }
+            }
+        }
 
         return false;
     });
