@@ -107,17 +107,62 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
         return false;
     }
 
+    // Determines whether the current player is eligible to take a specific item
+    // from a source creature's loot, respecting group loot rules and item ownership.
+    //
+    // In a group context, items are owned by:
+    //   - A specific set of players after a Need/Greed roll  (allowedGUIDs)
+    //   - The round-robin player for under-threshold items   (roundRobinPlayer)
+    //   - Any player in the group for FFA / Master Loot
+    //
+    // Items not eligible for the current player are left untouched on the source
+    // corpse so other group members can still loot them.
+    auto isEligibleForPlayer = [&](Loot const* loot, LootItem const& item, Creature* src) -> bool
+    {
+        // FFA items: any eligible player may take their own copy
+        if (item.freeforall)
+            return true;
+
+        // Items assigned to specific players (e.g., after a Need/Greed roll result)
+        if (!item.allowedGUIDs.empty())
+            return item.allowedGUIDs.count(player->GetGUID()) > 0;
+
+        // Round-robin / standard items: verify group loot ownership
+        Group* recipientGroup = src->GetLootRecipientGroup();
+        if (!recipientGroup)
+            return src->GetLootRecipient() == player;
+
+        if (recipientGroup != player->GetGroup())
+            return false;
+
+        switch (recipientGroup->GetLootMethod())
+        {
+            case FREE_FOR_ALL:
+            case MASTER_LOOT:
+                return true;
+            case ROUND_ROBIN:
+            case GROUP_LOOT:
+            case NEED_BEFORE_GREED:
+                // Under-threshold items go to the round-robin player.
+                // If roundRobinPlayer is empty the slot has been released and
+                // any group member may take the item.
+                return !loot->roundRobinPlayer || loot->roundRobinPlayer == player->GetGUID();
+            default:
+                return false;
+        }
+    };
+
     // Get main loot
     Loot* mainLoot = &mainCreature->loot;
 
-    // Limit number of corpses to process
-    size_t const maxCorpses = 10; // set to 10 to improve stability
+    // Use configured max corpses value
+    size_t const maxCorpses = static_cast<size_t>(sConfigMgr->GetOption<uint32>("AOELoot.MaxCorpses", 20));
     size_t processedCorpses = 0;
 
     // Track total gold to merge
     uint32 totalGold = mainLoot->gold;
 
-    // Collect all items to merge (don't modify main loot directly)
+    // Collect items to merge (don't modify main loot directly yet)
     std::vector<LootItem> itemsToAdd;
     std::vector<LootItem> questItemsToAdd;
 
@@ -135,32 +180,54 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
         if (loot->isLooted())
             continue;
 
-        // Collect gold
+        // Merge gold. In group loot, gold is taken by whoever opens the corpse
+        // first, consistent with vanilla round-robin behavior.
         if (loot->gold > 0)
         {
-            // Prevent overflow
             if (totalGold < (std::numeric_limits<uint32>::max() - loot->gold))
                 totalGold += loot->gold;
+            loot->gold = 0;
         }
 
-        // Collect regular items
-        for (size_t i = 0; i < loot->items.size(); ++i)
+        // Surgically collect only the items this player is eligible for.
+        // Items that belong to other group members (different round-robin slot,
+        // specific allowedGUIDs, etc.) are skipped so the corpse remains
+        // lootable for the rightful owner.
+        bool itemsRemainingForOthers = false;
+        for (auto& srcItem : loot->items)
         {
-            // Check if there's still space
-            if ((mainLoot->items.size() + itemsToAdd.size() + mainLoot->quest_items.size() + questItemsToAdd.size()) >= MAX_LOOT_ITEMS)
+            if (srcItem.is_looted)
+                continue;
+
+            if (!isEligibleForPlayer(loot, srcItem, creature))
+            {
+                itemsRemainingForOthers = true;
+                continue;
+            }
+
+            if ((mainLoot->items.size() + itemsToAdd.size() +
+                 mainLoot->quest_items.size() + questItemsToAdd.size()) >= MAX_LOOT_ITEMS)
                 break;
 
-            itemsToAdd.push_back(loot->items[i]);
+            itemsToAdd.push_back(srcItem);
+
+            // Mark item as taken in the source so the loot state stays consistent
+            srcItem.is_looted = true;
+            if (loot->unlootedCount > 0)
+                --loot->unlootedCount;
         }
 
-        // Collect quest items (only for active quests, limited to needed count)
+        // Collect quest items (per-player, capped to how many the player still needs)
         for (size_t i = 0; i < loot->quest_items.size(); ++i)
         {
-            // Check if there's still space
-            if ((mainLoot->items.size() + itemsToAdd.size() + mainLoot->quest_items.size() + questItemsToAdd.size()) >= MAX_LOOT_ITEMS)
+            if ((mainLoot->items.size() + itemsToAdd.size() +
+                 mainLoot->quest_items.size() + questItemsToAdd.size()) >= MAX_LOOT_ITEMS)
                 break;
 
             LootItem const& questItem = loot->quest_items[i];
+
+            if (questItem.is_looted)
+                continue;
 
             // Skip items the player doesn't need for any active quest
             if (!player->HasQuestForItem(questItem.itemid))
@@ -188,8 +255,7 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
             if (maxNeeded == 0)
                 continue;
 
-            // Count how many the player already has, plus pending adds
-            // and quest items already in the main loot window
+            // Count how many the player already has, plus items pending delivery
             uint32 ownedCount = player->GetItemCount(questItem.itemid, true);
             for (auto const& pending : questItemsToAdd)
             {
@@ -208,31 +274,33 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
             uint32 stillNeeded = maxNeeded - ownedCount;
             LootItem cappedItem = questItem;
             cappedItem.count = std::min(static_cast<uint32>(questItem.count), stillNeeded);
-
             questItemsToAdd.push_back(cappedItem);
         }
 
-        // Clear source loot (but don't modify vector directly)
-        loot->clear();
-        creature->AllLootRemovedFromCorpse();
-        creature->RemoveDynamicFlag(UNIT_DYNFLAG_LOOTABLE);
+        // Only remove the lootable flag when there is truly nothing left for anyone.
+        // If other group members still have eligible items, the corpse must remain
+        // lootable so they can claim what belongs to them.
+        if (!itemsRemainingForOthers && loot->isLooted())
+        {
+            creature->AllLootRemovedFromCorpse();
+            creature->RemoveDynamicFlag(UNIT_DYNFLAG_LOOTABLE);
+        }
 
         processedCorpses++;
     }
 
-    // Now safely add collected items to main loot
-    // Update gold
+    // Apply merged gold to the main loot window
     mainLoot->gold = totalGold;
 
-    // Add regular items
-    for (const auto& item : itemsToAdd)
+    // Add eligible regular items to the main loot window
+    for (LootItem const& item : itemsToAdd)
     {
         if (mainLoot->items.size() < MAX_LOOT_ITEMS)
             mainLoot->items.push_back(item);
     }
 
-    // Add quest items directly to player inventory
-    for (const auto& item : questItemsToAdd)
+    // Deliver quest items directly to player inventory
+    for (LootItem const& item : questItemsToAdd)
     {
         if (!player->HasQuestForItem(item.itemid))
             continue;
