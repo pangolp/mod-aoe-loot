@@ -8,286 +8,141 @@
 
 ## Descripción
 
-Este módulo habilita la funcionalidad de saqueo en área (AOE) para AzerothCore, permitiendo a los jugadores saquear múltiples cadáveres cercanos interactuando con solo uno de ellos. Todos los objetos y oro de los cadáveres dentro del rango configurado se recopilan automáticamente en una sola ventana de botín.
-
-## Características
-
-- **Saqueo AOE**: Recolecta automáticamente el botín de múltiples cadáveres cercanos con una sola interacción
-- **Comandos de Activación Individual**: Los jugadores pueden activar/desactivar el saqueo AOE usando los comandos `.aoeloot on/off`
-- **Soporte Multi-idioma**: Internacionalización completa con traducciones en inglés y español (fácilmente extensible a otros idiomas)
-- **Rango Configurable**: Los administradores del servidor pueden establecer la distancia máxima para la recolección de botín AOE
-- **Soporte de Grupo**: Saqueo en grupo opcional con configuración personalizable
-- **Optimizado para Rendimiento**: Limita el número de cadáveres procesados para mantener la estabilidad del servidor
-- **Gestión Inteligente de Objetos**:
-  - Acumulación automática de oro con protección contra desbordamiento
-  - Objetos de misión enviados directamente al inventario
-  - Máximo de 15 objetos por ventana de botín para evitar problemas de interfaz
-- **Gestión de Cadáveres**: Limpia automáticamente los cadáveres saqueados para reducir el desorden visual
-
-## Actualizaciones Recientes
-
-### v2.0 - Control del Jugador e Internacionalización
-- ✅ Agregados comandos `.aoeloot on/off` para control individual del jugador
-- ✅ Implementado soporte multi-idioma mediante el sistema `acore_string`
-- ✅ Corregidos problemas de alineación de IDs en enums
-- ✅ Traducciones completas en inglés y español
-- ✅ Mejorada la documentación y estructura del código
-
-### v1.x - Funcionalidad Principal
-- Implementación inicial del saqueo AOE
-- Sistema de configuración
-- Ajustes de rango y grupo
+Este módulo habilita el saqueo en área (AOE) para AzerothCore. Cuando un jugador saquea un cadáver, todos los cadáveres cercanos elegibles se saquean automáticamente — los objetos van directamente a la bolsa del jugador sin necesidad de hacer clic en cada cuerpo individualmente.
 
 ## Requisitos
 
-- AzerothCore v3.0.0+ (se recomienda la última rama master)
-- MySQL 8.0+
-- Compilador con soporte para C++17
+- AzerothCore rama master (versión reciente)
+- PR del core [feat/player-creature-loot-opened-hook](https://github.com/azerothcore/azerothcore-wotlk/pull/XXXX) aplicado *(agrega el hook `OnPlayerCreatureLootOpened` y el método `Player::AutoTakeCreatureLoot` utilizados por este módulo)*
 
 ## Instalación
 
-### 1. Clonar el Módulo
+### 1. Aplicar el PR del core
 
-Navega al directorio de módulos de AzerothCore:
+Este módulo depende de dos adiciones al core de AzerothCore. Asegurarse de que el PR indicado arriba esté aplicado antes de compilar.
+
+### 2. Clonar el módulo
 
 ```bash
-cd <DirectorioACore>/modules
+cd <ACoreDir>/modules
 git clone https://github.com/azerothcore/mod-aoe-loot.git
 ```
 
-### 2. Compilar
-
-Recompila AzerothCore:
+### 3. Recompilar AzerothCore
 
 ```bash
-cd <DirectorioACore>/build
-cmake ../ -DCMAKE_INSTALL_PREFIX=/ruta/al/servidor -DCMAKE_C_COMPILER=/usr/bin/clang -DCMAKE_CXX_COMPILER=/usr/bin/clang++
-make -j $(nproc)
-make install
+cd <ACoreDir>/build
+cmake .. && make -j$(nproc) && make install
 ```
 
-### 3. Configurar
+### 4. Configurar
 
-Edita tu archivo `worldserver.conf` (o crea `AOELoot.conf` en la carpeta de configuraciones):
+Copiar `conf/mod_aoe_loot.conf.dist` al directorio de configuración del servidor y ajustar los valores según sea necesario (ver **Configuración** más abajo).
 
-```conf
-###################################################################################################
-#    CONFIGURACIÓN DEL MÓDULO AOE LOOT
-###################################################################################################
-
-#
-#    AOELoot.Enable
-#        Descripción: Habilita o deshabilita el módulo AOE Loot globalmente
-#        Por defecto:  1 (habilitado)
-#                      0 (deshabilitado)
-
-AOELoot.Enable = 1
-
-#
-#    AOELoot.Range
-#        Descripción: Distancia máxima (en yardas) para recolectar botín de cadáveres cercanos
-#        Por defecto:  55.0
-#        Rango:        5.0 - 100.0
-
-AOELoot.Range = 55.0
-
-#
-#    AOELoot.Group
-#        Descripción: Permitir saqueo AOE cuando el jugador está en un grupo
-#        Por defecto:  1 (permitido)
-#                      0 (no permitido)
-
-AOELoot.Group = 1
-
-#
-#    AOELoot.Message
-#        Descripción: Mostrar mensaje informativo al iniciar sesión
-#        Por defecto:  1 (mostrar mensaje)
-#                      0 (sin mensaje)
-
-AOELoot.Message = 1
-
-###################################################################################################
-```
-
-### 4. Configuración de Degradación de Cadáveres (IMPORTANTE)
-
-Para una experiencia óptima, modifica la configuración de degradación de cadáveres en `worldserver.conf`:
-
-```conf
-#
-#    Rate.Corpse.Decay.Looted
-#        Descripción: Multiplicador para Corpse.Decay.* que configura cuánto tiempo permanecen
-#                     los cadáveres de las criaturas después de ser saqueados.
-#        Por defecto:  0.5
-#        Recomendado:  0.01 (para el módulo AOE Loot)
-
-Rate.Corpse.Decay.Looted = 0.01
-```
-
-**Por qué es importante:** La tasa de degradación predeterminada (0.5) puede hacer que los cadáveres permanezcan después de ser saqueados mediante AOE, creando desorden visual. Establecer esto en 0.01 asegura que los cadáveres desaparezcan rápidamente después del saqueo.
-
-### 5. Reiniciar el Servidor
-
-Reinicia tu worldserver para cargar el módulo:
-
-```bash
-./worldserver
-```
-
-## Uso
-
-### Para Jugadores
-
-#### Comandos
-- `.aoeloot on` - Activar el saqueo AOE para tu personaje
-- `.aoeloot off` - Desactivar el saqueo AOE para tu personaje
-
-#### Cómo Usar
-1. Mata múltiples enemigos en proximidad cercana
-2. Haz clic derecho en cualquier cadáver para saquear
-3. Todos los objetos de los cadáveres cercanos aparecerán en una sola ventana de botín
-4. Los objetos de misión se agregan automáticamente a tu inventario
-
-**Nota:** Las preferencias del jugador se restablecen al cerrar sesión. El saqueo AOE está habilitado por defecto si el módulo está activo.
-
-### Para Administradores
-
-El módulo puede controlarse a través de la configuración del archivo (ver sección de Configuración arriba).
-
-## Opciones de Configuración
-
-| Opción | Tipo | Por Defecto | Descripción |
-|--------|------|-------------|-------------|
-| `AOELoot.Enable` | Booleano | 1 | Habilitar/deshabilitar módulo globalmente |
-| `AOELoot.Range` | Decimal | 55.0 | Radio máximo de recolección de botín (5.0 - 100.0) |
-| `AOELoot.Group` | Booleano | 1 | Permitir saqueo AOE en grupos |
-| `AOELoot.Message` | Booleano | 1 | Mostrar mensaje de inicio de sesión |
-
-## Soporte Multi-idioma
-
-El módulo incluye soporte completo multi-idioma a través del sistema `acore_string` de AzerothCore.
-
-### Idiomas Actualmente Soportados
-- 🇬🇧 Inglés (en_US)
-- 🇪🇸 Español (es_ES / es_MX)
-
-### Agregar Más Idiomas
-
-Para agregar soporte de idiomas adicionales, actualiza el archivo SQL:
-
-```sql
-UPDATE `acore_string` SET
-    `locale_frFR` = 'Votre traduction ici',
-    `locale_deDE` = 'Ihre Übersetzung hier',
-    `locale_ruRU` = 'Ваш перевод здесь'
-WHERE `entry` BETWEEN 50000 AND 50007;
-```
-
-Columnas de localización soportadas:
-- `locale_koKR` (Coreano)
-- `locale_frFR` (Francés)
-- `locale_deDE` (Alemán)
-- `locale_zhCN` (Chino Simplificado)
-- `locale_zhTW` (Chino Tradicional)
-- `locale_ruRU` (Ruso)
-
-## Detalles Técnicos
-
-### Entradas de Base de Datos
-
-El módulo utiliza las entradas `acore_string` 50000-50007:
-
-| Entrada | Constante | Propósito |
-|---------|-----------|-----------|
-| 50000 | AOE_ACORE_STRING_MESSAGE | Mensaje de inicio de sesión |
-| 50001 | AOE_ITEM_IN_THE_MAIL | Notificación de correo (reservado) |
-| 50002-50003 | - | Reservado para uso futuro |
-| 50004 | AOE_LOOT_ALREADY_ENABLED | Mensaje "Ya activado" |
-| 50005 | AOE_LOOT_ENABLED | Confirmación "Activado" |
-| 50006 | AOE_LOOT_ALREADY_DISABLED | Mensaje "Ya desactivado" |
-| 50007 | AOE_LOOT_DISABLED | Confirmación "Desactivado" |
-
-### Consideraciones de Rendimiento
-
-- Máximo 10 cadáveres procesados por operación de saqueo (fijo para estabilidad)
-- Máximo 15 objetos por ventana de botín
-- Protección contra desbordamiento de oro (previene exceder el valor máximo uint32)
-- Filtrado y limpieza eficiente de cadáveres
-
-## Solución de Problemas
-
-### Problema: El saqueo AOE no funciona
-
-**Soluciones:**
-- Verifica que el módulo esté habilitado: `AOELoot.Enable = 1`
-- Comprueba si lo desactivaste personalmente: usa `.aoeloot on`
-- Asegúrate de estar dentro del rango (55 yardas por defecto)
-- Si estás en grupo, verifica la configuración `AOELoot.Group`
-
-### Problema: Los cadáveres no desaparecen
-**Solución:**
-- Establece `Rate.Corpse.Decay.Looted = 0.01` en worldserver.conf
-
-### Problema: Mensajes en idioma incorrecto
-
-**Solución:**
-- Verifica que el SQL se importó correctamente
-- Comprueba la configuración de localización del cliente
-- Confirma que la tabla `acore_string` tiene traducciones para tu localización
-
-### Problema: Mensajes "Ya activado/desactivado" aparecen incorrectamente
-
-**Solución:**
-- Este es el comportamiento esperado - las preferencias se restablecen al cerrar sesión
-- En el primer inicio de sesión, el saqueo AOE está habilitado por defecto
-
-## Limitaciones Conocidas
-
-- Las preferencias del jugador no persisten entre sesiones de inicio/cierre de sesión
-- Máximo 10 cadáveres procesados a la vez (límite de rendimiento)
-- Los objetos de misión enviados al inventario pueden llenar las bolsas rápidamente
-- Rango limitado a un máximo de 100 yardas
-
-## Mejoras Futuras
-
-Características potenciales para versiones futuras:
-- [ ] Persistencia en base de datos para preferencias del jugador
-- [ ] Límite configurable de cadáveres máximos
-- [ ] Opción de envío de objetos de misión por correo (en lugar de inventario directo)
-- [ ] Indicador visual de rango
-- [ ] Interfaz de configuración por personaje
-- [ ] Seguimiento de estadísticas (objetos/oro total saqueado)
-
-## Créditos
-
-- **acidmanifesto** - [Autor original y concepto](https://github.com/azerothcore/mod-aoe-loot/pull/2)
-- **Comunidad AzerothCore** - Hooks, actualizaciones y mejoras
-- **Colaboradores** - Comandos de jugador, soporte multi-idioma y correcciones de errores
-
-## Enlaces
-
-- **AzerothCore:** [Repositorio](https://github.com/azerothcore) | [Sitio Web](https://azerothcore.org/) | [Discord](https://discord.gg/PaqQRkd)
-- **Repositorio del Módulo:** [GitHub](https://github.com/azerothcore/mod-aoe-loot)
-- **Problemas y Sugerencias:** [Rastreador de Problemas](https://github.com/azerothcore/mod-aoe-loot/issues)
-
-## Licencia
-
-Este módulo se publica bajo la [Licencia GNU AGPL v3](https://github.com/azerothcore/mod-aoe-loot/blob/master/LICENSE).
+### 5. Reiniciar el worldserver
 
 ---
 
-### Soporte
+## Cómo funciona
 
-Si encuentras algún problema o tienes sugerencias:
-1. Consulta la sección [Solución de Problemas](#solución-de-problemas)
-2. Busca en [problemas existentes](https://github.com/azerothcore/mod-aoe-loot/issues)
-3. Únete al [Discord de AzerothCore](https://discord.gg/PaqQRkd)
-4. Crea un [nuevo problema](https://github.com/azerothcore/mod-aoe-loot/issues/new) con información detallada
+Cuando un jugador saquea cualquier cadáver:
 
-**Por favor incluye:**
-- Hash del commit de AzerothCore
-- Sistema operativo y versión
-- Mensajes de error completos (si los hay)
-- Configuraciones utilizadas
-- Pasos para reproducir el problema
+1. El servidor aplica sus reglas normales de loot a ese cadáver (asignación round-robin, rolls, etc.).
+2. El módulo busca cadáveres saqueables cercanos dentro del rango configurado.
+3. Para cada cadáver cercano elegible, el módulo llama a la rutina interna de toma de ítems del servidor en nombre del jugador. Los ítems a los que el jugador tiene derecho van directamente a su bolsa; la ventana de loot normal permanece abierta solo para el cadáver en el que el jugador hizo clic.
+
+Los ítems llegan al inventario con la notificación estándar "Recibes botín" — sin ventanas de loot adicionales ni merging de ítems.
+
+---
+
+## Comportamiento en grupo
+
+> **Importante para administradores de servidor y jugadores**
+
+Este módulo respeta completamente el método de botín configurado para el grupo.
+
+### Botín de Grupo / Turno Rotatorio / Necesito antes que Codicia
+
+El servidor asigna cada cadáver a un miembro específico del grupo mediante su rotación round-robin (establecida al morir la criatura, antes de que cualquier jugador abra el botín). El módulo respeta esta asignación:
+
+- **Cada jugador recolecta automáticamente solo los cadáveres que le fueron asignados** por la rotación. Los cadáveres de los demás miembros se dejan intactos y siguen siendo saqueables.
+- **Los ítems van directamente a la bolsa del jugador asignado**, incluso si ese jugador no hizo clic en el cadáver. Esto ocurre automáticamente cuando cualquier miembro del grupo saquea algo cercano.
+- **Si un jugador abre manualmente un cadáver asignado a otro miembro**, los ítems del dueño legítimo se envían inmediata y silenciosamente a su bolsa antes de que el que abrió el cadáver pueda interactuar con la ventana de botín. El que abrió el cadáver no recibe nada de él.
+
+En la práctica: cada jugador necesita saquear al menos un cadáver para activar la recolección automática de todos los cadáveres que le fueron asignados. Los jugadores verán ítems apareciendo en su bolsa provenientes de cadáveres en los que nunca hicieron clic.
+
+### Libre Para Todos
+
+Todos los miembros del grupo recolectan de todos los cadáveres cercanos elegibles sin restricciones.
+
+### Maestro del Botín
+
+El maestro del botín recolecta automáticamente todos los cadáveres cercanos elegibles.
+
+---
+
+## Comandos de jugador
+
+| Comando | Descripción |
+|---------|-------------|
+| `.aoeloot on` | Activar el saqueo AOE para tu personaje |
+| `.aoeloot off` | Desactivar el saqueo AOE para tu personaje |
+
+> Las preferencias del jugador se reinician al cerrar sesión. El saqueo AOE está activado por defecto cuando el módulo está activo.
+
+---
+
+## Configuración
+
+| Opción | Tipo | Predeterminado | Descripción |
+|--------|------|----------------|-------------|
+| `AOELoot.Enable` | Booleano | 1 | Activar o desactivar el módulo globalmente |
+| `AOELoot.Message` | Booleano | 1 | Mostrar mensaje informativo al iniciar sesión |
+| `AOELoot.Range` | Float | 55.0 | Radio máximo de búsqueda en yardas (5.0 – 100.0) |
+| `AOELoot.Group` | Booleano | 1 | Activar el saqueo AOE cuando el jugador está en grupo |
+| `AOELoot.MaxCorpses` | Entero | 20 | Máximo de cadáveres cercanos procesados por activación (1 – 50) |
+
+### Recomendado: decay de cadáveres más rápido
+
+Para evitar desorden visual con los cadáveres saqueados permaneciendo en el suelo, reducir el tiempo de desaparición en `worldserver.conf`:
+
+```conf
+# Predeterminado: 0.5 — Recomendado para saqueo AOE: 0.01
+Rate.Corpse.Decay.Looted = 0.01
+```
+
+---
+
+## Solución de problemas
+
+| Problema | Solución |
+|----------|----------|
+| El saqueo AOE no se activa | Verificar `AOELoot.Enable = 1` y `.aoeloot on` en tu personaje |
+| Solo se saquea un cadáver | Verificar que el PR del core esté aplicado y el servidor recompilado |
+| Los ítems no van al jugador correcto | Confirmar que el método de botín del grupo esté configurado antes del combate |
+| Los cadáveres no desaparecen | Configurar `Rate.Corpse.Decay.Looted = 0.01` en `worldserver.conf` |
+
+---
+
+## Limitaciones conocidas
+
+- Las preferencias de activación/desactivación (`.aoeloot on/off`) no persisten entre sesiones.
+- El saqueo AOE se activa solo cuando un jugador saquea un cadáver; los jugadores inactivos cerca de un combate no recolectan automáticamente.
+
+---
+
+## Créditos
+
+- **acidmanifesto** — [Autor original y concepto](https://github.com/azerothcore/mod-aoe-loot/pull/2)
+- **Comunidad AzerothCore** — Hooks, actualizaciones y mejoras
+- **Colaboradores** — Comandos de jugador, soporte multi-idioma y corrección de errores
+
+## Enlaces
+
+- **AzerothCore:** [Repositorio](https://github.com/azerothcore) | [Sitio web](https://azerothcore.org/) | [Discord](https://discord.gg/PaqQRkd)
+- **Repositorio del módulo:** [GitHub](https://github.com/azerothcore/mod-aoe-loot)
+- **Problemas y sugerencias:** [Issue Tracker](https://github.com/azerothcore/mod-aoe-loot/issues)
+
+## Licencia
+
+Este módulo se distribuye bajo la [Licencia GNU AGPL v3](https://github.com/azerothcore/mod-aoe-loot/blob/master/LICENSE).

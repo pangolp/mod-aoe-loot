@@ -5,20 +5,18 @@
 # unlimited permission to copy and/or distribute it, with or without
 # modifications, as long as this notice is preserved.
 #
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY, to the extent permitted by law; without even the
-# implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-#
-# User has manually chosen to ignore the git-tests, so throw them a warning.
-# This is done EACH compile so they can be alerted about the consequences.
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY, to the extent permitted by law; without even the implied
+# warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #
 
 ########################################
 # AoeLoot module configuration
 ########################################
+
 #
 #    AOELoot.Enable
-#        Description: Enables Module
+#        Description: Enable or disable the AOE Loot module globally.
 #        Default:     1 - (Enabled)
 #                     0 - (Disabled)
 #
@@ -27,7 +25,7 @@ AOELoot.Enable = 1
 
 #
 #    AOELoot.Message
-#        Description: Enables area loot if the player is in a group
+#        Description: Show an informational message to players on login.
 #        Default:     1 - (Enabled)
 #                     0 - (Disabled)
 #
@@ -36,18 +34,43 @@ AOELoot.Message = 1
 
 #
 #    AOELoot.Range
-#       Description: Maximum reach range search loot.
-#       Default:    55.0
-#       Range:      5.0 - 100.0
+#        Description: Maximum distance in yards to search for nearby lootable corpses.
+#        Default:     55.0
+#        Range:       5.0 - 100.0
 #
 
 AOELoot.Range = 55.0
 
 #
 #    AOELoot.Group
-#        Description: Enables area loot if the player is in a group
+#        Description: Enable AOE looting when the player is in a group.
+#
+#        GROUP LOOT BEHAVIOR (important for administrators and players):
+#        When this option is enabled and the group loot method is Group Loot,
+#        Round Robin, or Need Before Greed, the module respects the server's
+#        round-robin rotation. Each player auto-collects loot from the corpses
+#        assigned to them by the rotation — items land directly in their bags
+#        without requiring them to click on each individual corpse.
+#
+#        If a player opens a corpse that belongs to another group member's
+#        round-robin slot, that member's items are immediately and automatically
+#        sent to their bags. The opener receives no items from that corpse.
+#
+#        Free For All and Master Loot groups are not affected by these
+#        restrictions: any group member receives loot from all nearby corpses.
+#
 #        Default:     1 - (Enabled)
 #                     0 - (Disabled)
 #
 
 AOELoot.Group = 1
+
+#
+#    AOELoot.MaxCorpses
+#        Description: Maximum number of nearby corpses processed per loot trigger.
+#                     Increase for larger pulls, decrease for lower server load.
+#        Default:     20
+#        Range:       1 - 50
+#
+
+AOELoot.MaxCorpses = 20
