@@ -16,8 +16,6 @@
  */
 
 #include "aoe_loot.h"
-#include "ObjectMgr.h"
-#include <algorithm>
 #include <limits>
 
 std::map<uint64, bool> AoeLootCommandScript::playerAoeLootEnabled;
@@ -180,7 +178,6 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
 
     // Collect items to merge (don't modify main loot directly yet)
     std::vector<LootItem> itemsToAdd;
-    std::vector<LootItem> questItemsToAdd;
 
     for (Creature* creature : nearbyCorpses)
     {
@@ -221,8 +218,7 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
                 continue;
             }
 
-            if ((mainLoot->items.size() + itemsToAdd.size() +
-                 mainLoot->quest_items.size() + questItemsToAdd.size()) >= MAX_LOOT_ITEMS)
+            if (mainLoot->items.size() + itemsToAdd.size() >= MAX_LOOT_ITEMS)
                 break;
 
             itemsToAdd.push_back(srcItem);
@@ -231,66 +227,6 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
             srcItem.is_looted = true;
             if (loot->unlootedCount > 0)
                 --loot->unlootedCount;
-        }
-
-        // Collect quest items (per-player, capped to how many the player still needs)
-        for (size_t i = 0; i < loot->quest_items.size(); ++i)
-        {
-            if ((mainLoot->items.size() + itemsToAdd.size() +
-                 mainLoot->quest_items.size() + questItemsToAdd.size()) >= MAX_LOOT_ITEMS)
-                break;
-
-            LootItem const& questItem = loot->quest_items[i];
-
-            if (questItem.is_looted)
-                continue;
-
-            // Skip items the player doesn't need for any active quest
-            if (!player->HasQuestForItem(questItem.itemid))
-                continue;
-
-            // Calculate how many the player still needs across all active quests
-            uint32 maxNeeded = 0;
-            for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
-            {
-                uint32 questId = player->GetQuestSlotQuestId(slot);
-                if (!questId)
-                    continue;
-
-                Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
-                if (!quest)
-                    continue;
-
-                for (uint8 j = 0; j < QUEST_ITEM_OBJECTIVES_COUNT; ++j)
-                {
-                    if (quest->RequiredItemId[j] == questItem.itemid && quest->RequiredItemCount[j] > maxNeeded)
-                        maxNeeded = quest->RequiredItemCount[j];
-                }
-            }
-
-            if (maxNeeded == 0)
-                continue;
-
-            // Count how many the player already has, plus items pending delivery
-            uint32 ownedCount = player->GetItemCount(questItem.itemid, true);
-            for (auto const& pending : questItemsToAdd)
-            {
-                if (pending.itemid == questItem.itemid)
-                    ownedCount += pending.count;
-            }
-            for (auto const& mainQuestItem : mainLoot->quest_items)
-            {
-                if (mainQuestItem.itemid == questItem.itemid)
-                    ownedCount += mainQuestItem.count;
-            }
-
-            if (ownedCount >= maxNeeded)
-                continue;
-
-            uint32 stillNeeded = maxNeeded - ownedCount;
-            LootItem cappedItem = questItem;
-            cappedItem.count = std::min(static_cast<uint32>(questItem.count), stillNeeded);
-            questItemsToAdd.push_back(cappedItem);
         }
 
         // Only remove the lootable flag when there is truly nothing left for anyone.
@@ -313,15 +249,6 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
     {
         if (mainLoot->items.size() < MAX_LOOT_ITEMS)
             mainLoot->items.push_back(item);
-    }
-
-    // Deliver quest items directly to player inventory
-    for (LootItem const& item : questItemsToAdd)
-    {
-        if (!player->HasQuestForItem(item.itemid))
-            continue;
-
-        player->AddItem(item.itemid, item.count);
     }
 
     // Send merged loot window
