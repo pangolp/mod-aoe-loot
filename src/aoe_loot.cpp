@@ -119,6 +119,13 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
     // corpse so other group members can still loot them.
     auto isEligibleForPlayer = [&](Loot const* loot, LootItem const& item, Creature* src) -> bool
     {
+        // Never touch items with an active Need/Greed roll. The roll system owns
+        // these until it resolves and populates allowedGUIDs with the winner.
+        // Merging a blocked item would mark it as looted in the source while the
+        // roll is still in flight, making it disappear for everyone.
+        if (item.is_blocked)
+            return false;
+
         // FFA items: any eligible player may take their own copy
         if (item.freeforall)
             return true;
