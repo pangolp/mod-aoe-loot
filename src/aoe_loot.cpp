@@ -94,10 +94,32 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
     // Remove invalid corpses and main target
     nearbyCorpses.remove_if([&](Creature* c)
         {
-            return !c ||
-                c->GetGUID() == targetGuid ||
-                !c->HasDynamicFlag(UNIT_DYNFLAG_LOOTABLE) ||
-                !player->isAllowedToLoot(c);
+            if (!c || c->GetGUID() == targetGuid || !c->HasDynamicFlag(UNIT_DYNFLAG_LOOTABLE))
+                return true;
+
+            if (!player->isAllowedToLoot(c))
+                return true;
+
+            // For loot methods that assign per-corpse ownership (GROUP_LOOT, ROUND_ROBIN,
+            // NEED_BEFORE_GREED), only merge corpses where this player is the tap
+            // recipient. Corpses tapped by other group members are left for them to loot
+            // directly; they must not be consumed by a different player's AOE pass.
+            //
+            // NOTE: roundRobinPlayer is set lazily (on first SendLoot call), so it is
+            // empty for unopened corpses and cannot be used to determine ownership here.
+            // GetLootRecipient() reflects the player who held the tap at creature death
+            // and is the correct ownership signal at this stage.
+            if (Group* group = player->GetGroup())
+            {
+                if (c->GetLootRecipientGroup() == group)
+                {
+                    LootMethod const method = group->GetLootMethod();
+                    if (method == ROUND_ROBIN || method == GROUP_LOOT || method == NEED_BEFORE_GREED)
+                        return c->GetLootRecipient() != player;
+                }
+            }
+
+            return false;
         });
 
     // If no other corpses, process normally
@@ -108,16 +130,18 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
     }
 
     // Determines whether the current player is eligible to take a specific item
-    // from a source creature's loot, respecting group loot rules and item ownership.
+    // from a source creature's loot.
     //
-    // In a group context, items are owned by:
-    //   - A specific set of players after a Need/Greed roll  (allowedGUIDs)
-    //   - The round-robin player for under-threshold items   (roundRobinPlayer)
-    //   - Any player in the group for FFA / Master Loot
-    //
-    // Items not eligible for the current player are left untouched on the source
-    // corpse so other group members can still loot them.
-    auto isEligibleForPlayer = [&](Loot const* loot, LootItem const& item, Creature* src) -> bool
+    // Corpse-level ownership (GROUP_LOOT / ROUND_ROBIN / NEED_BEFORE_GREED) is
+    // already enforced by the nearbyCorpses filter above using GetLootRecipient().
+    // This lambda handles only per-item checks that apply after that filter:
+    //   - is_blocked  : active roll in flight — never touch.
+    //   - freeforall  : personal drop, any eligible player may take a copy.
+    //   - allowedGUIDs: post-roll assignment to specific players.
+    //   - standard    : for solo kills verify direct ownership;
+    //                   for group kills the filter already guarantees the player
+    //                   is the correct recipient, so membership check is enough.
+    auto isEligibleForPlayer = [&](LootItem const& item, Creature* src) -> bool
     {
         // Never touch items with an active Need/Greed roll. The roll system owns
         // these until it resolves and populates allowedGUIDs with the winner.
@@ -134,29 +158,14 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
         if (!item.allowedGUIDs.empty())
             return item.allowedGUIDs.count(player->GetGUID()) > 0;
 
-        // Round-robin / standard items: verify group loot ownership
+        // Standard items: solo kill must match the tap recipient directly;
+        // group kill corpses that reach here have already been filtered to this
+        // player's tap, so group membership is sufficient.
         Group* recipientGroup = src->GetLootRecipientGroup();
         if (!recipientGroup)
             return src->GetLootRecipient() == player;
 
-        if (recipientGroup != player->GetGroup())
-            return false;
-
-        switch (recipientGroup->GetLootMethod())
-        {
-            case FREE_FOR_ALL:
-            case MASTER_LOOT:
-                return true;
-            case ROUND_ROBIN:
-            case GROUP_LOOT:
-            case NEED_BEFORE_GREED:
-                // Under-threshold items go to the round-robin player.
-                // If roundRobinPlayer is empty the slot has been released and
-                // any group member may take the item.
-                return !loot->roundRobinPlayer || loot->roundRobinPlayer == player->GetGUID();
-            default:
-                return false;
-        }
+        return recipientGroup == player->GetGroup();
     };
 
     // Get main loot
@@ -206,7 +215,7 @@ bool AOELootServer::CanPacketReceive(WorldSession* session, WorldPacket const& p
             if (srcItem.is_looted)
                 continue;
 
-            if (!isEligibleForPlayer(loot, srcItem, creature))
+            if (!isEligibleForPlayer(srcItem, creature))
             {
                 itemsRemainingForOthers = true;
                 continue;
