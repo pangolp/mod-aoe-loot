@@ -13,13 +13,13 @@ This module enables Area of Effect (AOE) looting for AzerothCore. When a player 
 ## Requirements
 
 - AzerothCore latest master branch
-- Core PR [feat/player-creature-loot-opened-hook](https://github.com/azerothcore/azerothcore-wotlk/pull/XXXX) merged *(adds the `OnPlayerCreatureLootOpened` hook and `Player::AutoTakeCreatureLoot` used by this module)*
+- Core PR [feat/player-creature-loot-opened-hook](https://github.com/azerothcore/azerothcore-wotlk/pull/XXXX) merged *(adds the `OnPlayerCreatureLootOpened` hook used by this module)*
 
 ## Installation
 
 ### 1. Apply the core PR
 
-This module depends on two additions to the AzerothCore core. Ensure the linked PR above is merged before compiling.
+This module depends on the `OnPlayerCreatureLootOpened` hook added to the AzerothCore core. Ensure the linked PR above is merged before compiling.
 
 ### 2. Clone the module
 

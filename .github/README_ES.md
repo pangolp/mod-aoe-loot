@@ -13,13 +13,13 @@ Este módulo habilita el saqueo en área (AOE) para AzerothCore. Cuando un jugad
 ## Requisitos
 
 - AzerothCore rama master (versión reciente)
-- PR del core [feat/player-creature-loot-opened-hook](https://github.com/azerothcore/azerothcore-wotlk/pull/XXXX) aplicado *(agrega el hook `OnPlayerCreatureLootOpened` y el método `Player::AutoTakeCreatureLoot` utilizados por este módulo)*
+- PR del core [feat/player-creature-loot-opened-hook](https://github.com/azerothcore/azerothcore-wotlk/pull/XXXX) aplicado *(agrega el hook `OnPlayerCreatureLootOpened` utilizado por este módulo)*
 
 ## Instalación
 
 ### 1. Aplicar el PR del core
 
-Este módulo depende de dos adiciones al core de AzerothCore. Asegurarse de que el PR indicado arriba esté aplicado antes de compilar.
+Este módulo depende del hook `OnPlayerCreatureLootOpened` añadido al core de AzerothCore. Asegurarse de que el PR indicado arriba esté aplicado antes de compilar.
 
 ### 2. Clonar el módulo
 
