@@ -19,6 +19,50 @@
 
 std::map<uint64, bool> AoeLootCommandScript::playerAoeLootEnabled;
 
+bool AutoTakeCreatureLoot(Player* player, Creature* creature)
+{
+    if (!creature || !creature->HasDynamicFlag(UNIT_DYNFLAG_LOOTABLE))
+        return false;
+
+    if (!player->isAllowedToLoot(creature))
+        return false;
+
+    Loot* loot = &creature->loot;
+
+    // Ensure per-player item tracking is initialised (no-op if already done
+    // for this player at creature death via Loot::FillLoot).
+    loot->FillNotNormalLootFor(player);
+
+    // Temporarily redirect the player's active loot GUID so StoreLootItem
+    // internal checks operate against this creature.
+    ObjectGuid savedLootGuid = player->GetLootGUID();
+    player->SetLootGUID(creature->GetGUID());
+    loot->AddLooter(player->GetGUID());
+
+    bool tookAnything = false;
+    uint32 const maxSlots = loot->GetMaxSlotInLootFor(player);
+    for (uint32 slot = 0; slot < maxSlots; ++slot)
+    {
+        if (slot > std::numeric_limits<uint8>::max())
+            break;
+
+        InventoryResult msg;
+        if (player->StoreLootItem(static_cast<uint8>(slot), loot, msg))
+            tookAnything = true;
+    }
+
+    loot->RemoveLooter(player->GetGUID());
+    player->SetLootGUID(savedLootGuid);
+
+    if (loot->isLooted())
+    {
+        creature->AllLootRemovedFromCorpse();
+        creature->RemoveDynamicFlag(UNIT_DYNFLAG_LOOTABLE);
+    }
+
+    return tookAnything;
+}
+
 void AOELootPlayer::OnPlayerLogin(Player* player)
 {
     if (!player)
@@ -66,7 +110,7 @@ void AOELootPlayer::OnPlayerCreatureLootOpened(Player* player, Creature* mainCre
                 {
                     if (Player* owner = ObjectAccessor::FindConnectedPlayer(rrGuid))
                         if (owner->GetMap() == mainCreature->GetMap())
-                            owner->AutoTakeCreatureLoot(mainCreature);
+                            AutoTakeCreatureLoot(owner, mainCreature);
                 }
             }
         }
@@ -128,7 +172,7 @@ void AOELootPlayer::OnPlayerCreatureLootOpened(Player* player, Creature* mainCre
         if (processed >= maxCorpses)
             break;
 
-        if (player->AutoTakeCreatureLoot(corpse))
+        if (AutoTakeCreatureLoot(player, corpse))
             ++processed;
     }
 }
